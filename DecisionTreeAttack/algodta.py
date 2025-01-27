@@ -4,12 +4,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 from sklearn.model_selection import train_test_split
 
-digits = load_digits()
-xtrain, xtest, ytrain, ytest = train_test_split(digits.data, digits.target, train_size = .8)
 
-dtc = DecisionTreeClassifier().fit(xtrain, ytrain)
-
-tree = dtc.tree_
 
 
 # params
@@ -22,7 +17,7 @@ def getPredictionNodes(predictionPath):
     listPredictionNodes = [i for i in range(nodesNumber) if predictionPath[0,i] != 0]
     return listPredictionNodes
 
-def getAdversialNodes(predictionPath):
+def getAdversialNodes(predictionPath, tree):
     # renvoie le chemin adverse
     listPredictionNodes = getPredictionNodes(predictionPath)
     predictedClass = np.argmax(tree.value[listPredictionNodes[-1]])
@@ -32,8 +27,8 @@ def getAdversialNodes(predictionPath):
 
     while predictedClass == currentClass and currentDepth>=0:
         currentNode = listPredictionNodes[currentDepth]
-        otherNode = getOtherNode(currentNode, currentDepth, listPredictionNodes)
-        pathsUnderNodes = exploreUnderNode(otherNode)
+        otherNode = getOtherNode(currentNode, currentDepth, listPredictionNodes, tree)
+        pathsUnderNodes = exploreUnderNode(otherNode, tree)
         for path in pathsUnderNodes:
             if np.argmax(tree.value[path[-1]]) != currentClass:
                 return listPredictionNodes[:currentDepth] + path
@@ -41,7 +36,7 @@ def getAdversialNodes(predictionPath):
 
     raise Exception("adversial class not found")
     
-def getOtherNode(currentNode, currentDepth, listPredictionNodes):
+def getOtherNode(currentNode, currentDepth, listPredictionNodes, tree):
     # renvoie le frere de currentNode
     parent = listPredictionNodes[currentDepth-1]
     if tree.children_left[parent] == currentNode:
@@ -49,7 +44,7 @@ def getOtherNode(currentNode, currentDepth, listPredictionNodes):
     else:
         return tree.children_left[parent]
 
-def exploreUnderNode(node):
+def exploreUnderNode(node, tree):
     # renvoie tous les chemins partant de node
     if node == -1:
         return []
@@ -57,8 +52,8 @@ def exploreUnderNode(node):
     if tree.children_left[node] == -1:
         return [[node]]
 
-    leftPaths = exploreUnderNode(tree.children_left[node])
-    rightPaths = exploreUnderNode(tree.children_right[node])
+    leftPaths = exploreUnderNode(tree.children_left[node], tree)
+    rightPaths = exploreUnderNode(tree.children_right[node], tree)
 
     allPaths = []
     for path in leftPaths + rightPaths:
@@ -66,7 +61,7 @@ def exploreUnderNode(node):
 
     return allPaths
 
-def getChanges(adversialNodes, predictionPath):
+def getChanges(adversialNodes, predictionPath, tree):
     # renvoie la liste des changements à faire sous la forme
     # [[numero de feature, valeur a mettre] ...]
     listPredictionNodes = getPredictionNodes(predictionPath)
@@ -90,32 +85,40 @@ def getSuccessInfo(aSample, X, model):
     y = model.predict(X)
     yadversial = model.predict(aSample)
     nSuccesses = len(y) - sum(y==yadversial)
-    s = f"Nombre de réussites : {nSuccesses} sur {len(y)}\n {nSuccesses/len(y)*100}% de réussite"
+    s = f"{nSuccesses/len(y)*100}% de réussite"
     return s
 
     
 # génération du sample adverse
 def generate(X, model):
+    print("Génération de l'échantillon adverse")
     xtest = X.copy()
+    tree = model.tree_
     aSample = []
     for i in range(len(xtest)):
         print(f"Element numéro {i+1} sur {len(xtest)}", end = "\r")
         x = xtest[i]
-        predictionPath = dtc.decision_path([x]) 
+        predictionPath = model.decision_path([x]) 
        
         # récupérer le chemin adverse
-        adversialNodes = getAdversialNodes(predictionPath)
+        adversialNodes = getAdversialNodes(predictionPath, tree)
 
         # récupérer les changements
-        changes = getChanges(adversialNodes, predictionPath)
+        changes = getChanges(adversialNodes, predictionPath, tree)
         # modifier l'échantillon
         for change in changes:
             x[change[0]] = change[1]
         
         aSample.append(x)
 
+    print("")
     print(getSuccessInfo(aSample, X, model))
     
     return aSample
 
-aSample = generate(xtest, dtc)
+if __name__=="__main__":
+    digits = load_digits()
+    xtrain, xtest, ytrain, ytest = train_test_split(digits.data, digits.target, train_size = .8)
+
+    dtc = DecisionTreeClassifier().fit(xtrain, ytrain)
+    aSample = generate(xtest, dtc)
